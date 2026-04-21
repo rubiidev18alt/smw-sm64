@@ -2280,6 +2280,185 @@ void LmHook_EventStuff(uint8 a, bool from_where) {
 #define wallkick_no_back_timer g_ram[0x62]
 #define wallkick_temp_y_spd g_ram[0x63]
 
+static uint8 sm64_prev_in_air;
+static uint8 sm64_dive_active;
+static uint8 sm64_ground_pound_phase;
+static uint8 sm64_ground_pound_timer;
+static uint8 sm64_ground_pound_stomp_timer;
+static uint8 sm64_triple_stage;
+static uint8 sm64_triple_window;
+static uint8 sm64_punch_stage;
+static uint8 sm64_punch_timer;
+static uint8 sm64_backflip_timer;
+static uint8 sm64_triple_success_timer;
+
+void HackHandleSm64Moves() {
+  if (timer_end_level || player_current_state || player_swimming_flag || player_climbing_flag || player_carrying_something_flag1 ||
+      player_riding_yoshi_flag) {
+    sm64_prev_in_air = player_in_air_flag != 0;
+    sm64_dive_active = 0;
+    sm64_ground_pound_phase = 0;
+    sm64_ground_pound_timer = 0;
+    sm64_ground_pound_stomp_timer = 0;
+    sm64_triple_window = 0;
+    sm64_punch_stage = 0;
+    sm64_punch_timer = 0;
+    sm64_backflip_timer = 0;
+    sm64_triple_success_timer = 0;
+    return;
+  }
+
+  bool on_ground = player_in_air_flag == 0;
+  uint8 jump_press = (io_controller_press2 | io_controller_press1) & 0x80;
+  uint8 down_hold = io_controller_hold1 & 4;
+  uint8 down_press = io_controller_press1 & 4;
+  uint8 lr_hold = io_controller_hold1 & 3;
+
+  if (sm64_triple_window) {
+    --sm64_triple_window;
+    if (!sm64_triple_window)
+      sm64_triple_stage = 0;
+  }
+  if (sm64_punch_timer) {
+    --sm64_punch_timer;
+    if (!sm64_punch_timer)
+      sm64_punch_stage = 0;
+  }
+  if (sm64_ground_pound_stomp_timer)
+    --sm64_ground_pound_stomp_timer;
+  if (sm64_backflip_timer && !on_ground)
+    --sm64_backflip_timer;
+  if (sm64_triple_success_timer)
+    --sm64_triple_success_timer;
+
+  if (sm64_prev_in_air && on_ground) {
+    sm64_triple_window = 12;
+    sm64_dive_active = 0;
+    if (sm64_ground_pound_phase == 2) {
+      sm64_ground_pound_phase = 0;
+      sm64_ground_pound_timer = 0;
+      sm64_ground_pound_stomp_timer = 12;
+      timer_shake_layer1 = 44;
+      io_sound_ch3 = 9;
+    }
+    if (sm64_triple_stage == 2 && !lr_hold && sm64_ground_pound_phase == 0) {
+      sm64_triple_success_timer = 24;
+      player_current_pose = 38;
+      player_xspeed = 0;
+    }
+  } else if (!sm64_prev_in_air && !on_ground) {
+    if (!jump_press && sm64_triple_window == 0)
+      sm64_triple_stage = 0;
+  }
+
+  // Ground pound: hold down in mid-air, freeze briefly, then slam.
+  if (!on_ground) {
+    if (sm64_ground_pound_phase == 0 && down_press) {
+      sm64_ground_pound_phase = 1;
+      sm64_ground_pound_timer = 12;
+      player_yspeed = 0;
+      player_xspeed >>= 1;
+      player_current_pose = 28;
+    } else if (sm64_ground_pound_phase == 1) {
+      player_yspeed = 0;
+      player_xspeed >>= 1;
+      player_current_pose = 28;
+      if (sm64_ground_pound_timer) {
+        --sm64_ground_pound_timer;
+      } else {
+        sm64_ground_pound_phase = 2;
+        player_yspeed = 112;
+      }
+    } else if (sm64_ground_pound_phase == 2) {
+      if ((player_yspeed & 0x80) == 0 && player_yspeed < 112)
+        player_yspeed = 112;
+      player_current_pose = 28;
+    }
+  } else if (sm64_ground_pound_phase == 1) {
+    sm64_ground_pound_phase = 0;
+    sm64_ground_pound_timer = 0;
+  }
+
+  if (sm64_ground_pound_phase == 0 && sm64_backflip_timer && !on_ground) {
+    static const uint8 kBackflipDriftSpeed[2] = { 18, -18 };
+    player_xspeed = kBackflipDriftSpeed[player_facing_direction & 1];
+  }
+
+  // Dive: press spin jump in air to quickly lunge downward.
+  if (!on_ground && sm64_ground_pound_phase == 0 && (io_controller_press2 & 0x80) != 0 && !sm64_dive_active) {
+    sm64_dive_active = 1;
+    player_spin_jump_flag = 0;
+    player_yspeed = 64;
+    static const uint8 kDiveSpeed[2] = { -48, 48 };
+    player_xspeed = kDiveSpeed[player_facing_direction & 1];
+    player_current_pose = 13;
+    io_sound_ch2 = 1;
+  }
+
+  // Backflip / long jump / triple jump on jump press while grounded.
+  if (on_ground && jump_press && sm64_ground_pound_phase == 0) {
+    if (down_hold && (uint8)(player_xspeed + 8) < 16) {
+      // Backflip.
+      player_in_air_flag = 11;
+      player_yspeed = -104;
+      static const uint8 kBackflipXSpeed[2] = { 24, -24 };
+      player_xspeed = kBackflipXSpeed[player_facing_direction & 1];
+      sm64_backflip_timer = 16;
+      player_current_pose = 15;
+      io_sound_ch1 = 1;
+      sm64_triple_stage = 0;
+      sm64_triple_window = 0;
+    } else if (down_hold && lr_hold) {
+      // Long jump from crouch + direction.
+      player_in_air_flag = 11;
+      player_yspeed = -88;
+      static const uint8 kLongJumpSpeed[2] = { 48, -48 };
+      player_xspeed = kLongJumpSpeed[(lr_hold & 1) != 0];
+      player_current_pose = 13;
+      player_ducking_flag = 0;
+      io_sound_ch1 = 1;
+      sm64_triple_stage = 0;
+      sm64_triple_window = 0;
+    } else if (sm64_triple_window) {
+      // Triple jump chain from consecutive landing jumps.
+      ++sm64_triple_stage;
+      if (sm64_triple_stage > 2)
+        sm64_triple_stage = 2;
+      player_in_air_flag = 11;
+      static const uint8 kTripleJumpYSpeed[3] = { -80, -96, -120 };
+      player_yspeed = kTripleJumpYSpeed[sm64_triple_stage];
+      if (sm64_triple_stage == 1)
+        timer_show_running_frames_before_take_off = 6;
+      io_sound_ch1 = 1;
+      sm64_triple_window = 0;
+    } else {
+      sm64_triple_stage = 0;
+    }
+  }
+
+  // Punch / punch / kick combo when pressing spin jump while idle on ground.
+  if (on_ground && !down_hold && (io_controller_press2 & 0x80) != 0 && (uint8)(player_xspeed + 6) < 12 && sm64_ground_pound_phase == 0) {
+    sm64_punch_stage = (sm64_punch_stage + 1) % 3;
+    sm64_punch_timer = 16;
+    timer_active_cape_spin = sm64_punch_stage == 2 ? 12 : 10;
+    if (sm64_punch_stage == 2) {
+      timer_display_player_kicking_pose = 10;
+      io_sound_ch3 = 37;
+    } else {
+      io_sound_ch2 = 3;
+    }
+  }
+
+  if (sm64_ground_pound_stomp_timer)
+    player_sliding_on_ground = 1;
+  if (sm64_triple_success_timer && on_ground && !lr_hold && sm64_ground_pound_phase == 0) {
+    player_current_pose = 38;
+    player_xspeed = 0;
+  }
+
+  sm64_prev_in_air = !on_ground;
+}
+
 void HackHandleWalljump() {
   uint8 v0;
   uint8 v1;

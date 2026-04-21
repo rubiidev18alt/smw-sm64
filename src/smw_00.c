@@ -2268,6 +2268,7 @@ void GameMode14_InLevel() {  // 00a1da
         HandleStandardLevelCameraScroll();
         HandleScrollSpriteAndLayer3Scrolling();
         CheckIfLevelTilemapsNeedScrollUpdate();
+        HackHandleSm64Moves();
         if (HAS_HACK(kHack_Walljump))
           HackHandleWalljump();
         LmHook_LevelTileAnimations();
