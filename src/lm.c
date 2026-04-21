@@ -2346,6 +2346,9 @@ void HackHandleSm64Moves() {
       player_current_pose = 38;
       player_xspeed = 0;
     }
+      timer_shake_layer1 = 16;
+      io_sound_ch3 = 9;
+    }
   } else if (!sm64_prev_in_air && !on_ground) {
     if (!jump_press && sm64_triple_window == 0)
       sm64_triple_stage = 0;
@@ -2356,6 +2359,9 @@ void HackHandleSm64Moves() {
     if (sm64_ground_pound_phase == 0 && down_press) {
       sm64_ground_pound_phase = 1;
       sm64_ground_pound_timer = 12;
+    if (sm64_ground_pound_phase == 0 && down_hold) {
+      sm64_ground_pound_phase = 1;
+      sm64_ground_pound_timer = 8;
       player_yspeed = 0;
       player_xspeed >>= 1;
       player_current_pose = 28;
@@ -2397,6 +2403,7 @@ void HackHandleSm64Moves() {
 
   // Backflip / long jump / triple jump on jump press while grounded.
   if (on_ground && jump_press && sm64_ground_pound_phase == 0) {
+  if (on_ground && jump_press) {
     if (down_hold && (uint8)(player_xspeed + 8) < 16) {
       // Backflip.
       player_in_air_flag = 11;
@@ -2404,6 +2411,8 @@ void HackHandleSm64Moves() {
       static const uint8 kBackflipXSpeed[2] = { 24, -24 };
       player_xspeed = kBackflipXSpeed[player_facing_direction & 1];
       sm64_backflip_timer = 16;
+      static const uint8 kBackflipXSpeed[2] = { 32, -32 };
+      player_xspeed = kBackflipXSpeed[player_facing_direction & 1];
       player_current_pose = 15;
       io_sound_ch1 = 1;
       sm64_triple_stage = 0;
@@ -2413,6 +2422,7 @@ void HackHandleSm64Moves() {
       player_in_air_flag = 11;
       player_yspeed = -88;
       static const uint8 kLongJumpSpeed[2] = { 48, -48 };
+      static const uint8 kLongJumpSpeed[2] = { 56, -56 };
       player_xspeed = kLongJumpSpeed[(lr_hold & 1) != 0];
       player_current_pose = 13;
       player_ducking_flag = 0;
@@ -2447,6 +2457,10 @@ void HackHandleSm64Moves() {
     } else {
       io_sound_ch2 = 3;
     }
+    timer_active_cape_spin = 4;
+    if (sm64_punch_stage == 2)
+      timer_display_player_kicking_pose = 10;
+    io_sound_ch2 = 1;
   }
 
   if (sm64_ground_pound_stomp_timer)
